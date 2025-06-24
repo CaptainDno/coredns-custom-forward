@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/coredns/coredns/plugin/debug"
-	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/plugin/pkg/proxy"
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
@@ -47,6 +46,7 @@ func New(options ...func(pool *ProxyPool)) *ProxyPool {
 		ErrLimitExceeded:           errors.New("max concurrent requests exceeded"),
 		maxfails:                   2,
 		failfastUnhealthyUpstreams: false,
+		timeout:                    5 * time.Second,
 	}
 
 	for _, o := range options {
@@ -187,8 +187,6 @@ func (p *ProxyPool) Connect(ctx context.Context, state request.Request) (*dns.Ms
 				opts.ForceTCP = true
 				continue
 			}
-
-			clog.Errorf("failed to query upstream: %v", err)
 
 			break
 		}
