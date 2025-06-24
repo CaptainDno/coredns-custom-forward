@@ -51,6 +51,7 @@ func (y YggRequestProcessor) ProcessRequest(ctx context.Context, state request.R
 	state.Req.Question[0].Qtype = oQtype
 
 	if err != nil || ret.Rcode != dns.RcodeSuccess {
+		ret.Question[0].Qtype = oQtype
 		return ret, err, upstream
 	}
 
