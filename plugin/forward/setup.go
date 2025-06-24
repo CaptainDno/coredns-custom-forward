@@ -72,6 +72,7 @@ func setup(c *caddy.Controller) error {
 // OnStartup starts a goroutines for all proxies.
 func (f *Forward) OnStartup() (err error) {
 	f.pool.Start()
+	log.Infof("Started forward plugin with %d upstreams", f.Len())
 	return nil
 }
 
