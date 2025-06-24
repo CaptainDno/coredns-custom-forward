@@ -89,7 +89,7 @@ forward FROM TO... {
   * `sequential` is a policy that selects hosts based on sequential ordering.
 * `mode` specifies mode of operation
   * `normal` identical to official forward plugin
-  * `ygg` supports only AAAA queries, tries to get Yggdrasil IPv6 address (or addresses) from special TXT record. If record is not present, returns empty response  
+  * `ygg` supports only A and AAAA queries, tries to get Yggdrasil IPv6 address (or addresses) from special TXT record. If record is not present, falls through
 * `health_check` configure the behaviour of health checking of the upstream servers
   * `<duration>` - use a different duration for health checking, the default duration is 0.5s.
   * `no_rec` - optional argument that sets the RecursionDesired-flag of the dns-query used in health checking to `false`.
