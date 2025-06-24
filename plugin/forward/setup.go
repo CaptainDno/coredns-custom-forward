@@ -164,6 +164,8 @@ func parseStanza(c *caddy.Controller) (*Forward, error) {
 		proxies[i].GetHealthchecker().SetDomain(f.pool.Opts().HCDomain)
 	}
 
+	proxypool.WithProxies(proxies...)(f.pool)
+
 	return f, nil
 }
 
