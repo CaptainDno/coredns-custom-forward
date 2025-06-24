@@ -2,8 +2,8 @@ package forward
 
 import (
 	"crypto/tls"
-	"errors"
 	"fmt"
+	"github.com/coredns/coredns/plugin/pkg/proxypool"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -71,17 +71,13 @@ func setup(c *caddy.Controller) error {
 
 // OnStartup starts a goroutines for all proxies.
 func (f *Forward) OnStartup() (err error) {
-	for _, p := range f.proxies {
-		p.Start(f.hcInterval)
-	}
+	f.pool.Start()
 	return nil
 }
 
 // OnShutdown stops all configured proxies.
 func (f *Forward) OnShutdown() error {
-	for _, p := range f.proxies {
-		p.Stop()
-	}
+	f.pool.Stop()
 	return nil
 }
 
@@ -126,6 +122,9 @@ func parseStanza(c *caddy.Controller) (*Forward, error) {
 
 	transports := make([]string, len(toHosts))
 	allowedTrans := map[string]bool{"dns": true, "tls": true}
+
+	proxies := make([]*proxy.Proxy, 0, len(toHosts))
+
 	for i, host := range toHosts {
 		trans, h := parse.Transport(host)
 
@@ -133,7 +132,7 @@ func parseStanza(c *caddy.Controller) (*Forward, error) {
 			return f, fmt.Errorf("'%s' is not supported as a destination protocol in forward: %s", trans, host)
 		}
 		p := proxy.NewProxy("forward", h, trans)
-		f.proxies = append(f.proxies, p)
+		proxies = append(proxies, p)
 		transports[i] = trans
 	}
 
@@ -149,20 +148,20 @@ func parseStanza(c *caddy.Controller) (*Forward, error) {
 
 	// Initialize ClientSessionCache in tls.Config. This may speed up a TLS handshake
 	// in upcoming connections to the same TLS server.
-	f.tlsConfig.ClientSessionCache = tls.NewLRUClientSessionCache(len(f.proxies))
+	f.tlsConfig.ClientSessionCache = tls.NewLRUClientSessionCache(len(proxies))
 
-	for i := range f.proxies {
+	for i := range proxies {
 		// Only set this for proxies that need it.
 		if transports[i] == transport.TLS {
-			f.proxies[i].SetTLSConfig(f.tlsConfig)
+			proxies[i].SetTLSConfig(f.tlsConfig)
 		}
-		f.proxies[i].SetExpire(f.expire)
-		f.proxies[i].GetHealthchecker().SetRecursionDesired(f.opts.HCRecursionDesired)
+		proxies[i].SetExpire(f.expire)
+		proxies[i].GetHealthchecker().SetRecursionDesired(f.pool.Opts().HCRecursionDesired)
 		// when TLS is used, checks are set to tcp-tls
-		if f.opts.ForceTCP && transports[i] != transport.TLS {
-			f.proxies[i].GetHealthchecker().SetTCPTransport()
+		if f.pool.Opts().ForceTCP && transports[i] != transport.TLS {
+			proxies[i].GetHealthchecker().SetTCPTransport()
 		}
-		f.proxies[i].GetHealthchecker().SetDomain(f.opts.HCDomain)
+		proxies[i].GetHealthchecker().SetDomain(f.pool.Opts().HCDomain)
 	}
 
 	return f, nil
@@ -170,6 +169,11 @@ func parseStanza(c *caddy.Controller) (*Forward, error) {
 
 func parseBlock(c *caddy.Controller, f *Forward) error {
 	config := dnsserver.GetConfig(c)
+
+	poolOptions := make([]func(proxyPool *proxypool.ProxyPool), 0, 10)
+
+	proxyOpts := proxy.Options{}
+
 	switch c.Val() {
 	case "except":
 		ignore := c.RemainingArgs()
@@ -187,7 +191,8 @@ func parseBlock(c *caddy.Controller, f *Forward) error {
 		if err != nil {
 			return err
 		}
-		f.maxfails = uint32(n)
+		poolOptions = append(poolOptions, proxypool.WithMaxFails(uint32(n)))
+
 	case "health_check":
 		if !c.NextArg() {
 			return c.ArgErr()
@@ -199,13 +204,13 @@ func parseBlock(c *caddy.Controller, f *Forward) error {
 		if dur < 0 {
 			return fmt.Errorf("health_check can't be negative: %d", dur)
 		}
-		f.hcInterval = dur
-		f.opts.HCDomain = "."
+		poolOptions = append(poolOptions, proxypool.WithHealthCheckInterval(dur))
+		proxyOpts.HCDomain = "."
 
 		for c.NextArg() {
 			switch hcOpts := c.Val(); hcOpts {
 			case "no_rec":
-				f.opts.HCRecursionDesired = false
+				proxyOpts.HCRecursionDesired = false
 			case "domain":
 				if !c.NextArg() {
 					return c.ArgErr()
@@ -214,7 +219,7 @@ func parseBlock(c *caddy.Controller, f *Forward) error {
 				if _, ok := dns.IsDomainName(hcDomain); !ok {
 					return fmt.Errorf("health_check: invalid domain name %s", hcDomain)
 				}
-				f.opts.HCDomain = plugin.Name(hcDomain).Normalize()
+				proxyOpts.HCDomain = plugin.Name(hcDomain).Normalize()
 			default:
 				return fmt.Errorf("health_check: unknown option %s", hcOpts)
 			}
@@ -224,12 +229,12 @@ func parseBlock(c *caddy.Controller, f *Forward) error {
 		if c.NextArg() {
 			return c.ArgErr()
 		}
-		f.opts.ForceTCP = true
+		proxyOpts.ForceTCP = true
 	case "prefer_udp":
 		if c.NextArg() {
 			return c.ArgErr()
 		}
-		f.opts.PreferUDP = true
+		proxyOpts.PreferUDP = true
 	case "tls":
 		args := c.RemainingArgs()
 		if len(args) > 3 {
@@ -267,16 +272,18 @@ func parseBlock(c *caddy.Controller, f *Forward) error {
 		if !c.NextArg() {
 			return c.ArgErr()
 		}
+		var policy proxypool.Policy
 		switch x := c.Val(); x {
 		case "random":
-			f.p = &random{}
+			policy = &proxypool.Random{}
 		case "round_robin":
-			f.p = &roundRobin{}
+			policy = &proxypool.RoundRobin{}
 		case "sequential":
-			f.p = &sequential{}
+			policy = &proxypool.Sequential{}
 		default:
 			return c.Errf("unknown policy '%s'", x)
 		}
+		poolOptions = append(poolOptions, proxypool.WithPolicy(policy))
 	case "max_concurrent":
 		if !c.NextArg() {
 			return c.ArgErr()
@@ -288,8 +295,8 @@ func parseBlock(c *caddy.Controller, f *Forward) error {
 		if n < 0 {
 			return fmt.Errorf("max_concurrent can't be negative: %d", n)
 		}
-		f.ErrLimitExceeded = errors.New("concurrent queries exceeded maximum " + c.Val())
-		f.maxConcurrent = int64(n)
+
+		poolOptions = append(poolOptions, proxypool.WithMaxConcurrent(int64(n)))
 	case "next":
 		args := c.RemainingArgs()
 		if len(args) == 0 {
@@ -311,10 +318,31 @@ func parseBlock(c *caddy.Controller, f *Forward) error {
 		if len(args) != 0 {
 			return c.ArgErr()
 		}
-		f.failfastUnhealthyUpstreams = true
+
+		poolOptions = append(poolOptions, proxypool.WithFailFast(true))
+	// This is new parameter, it allows setting custom modes
+	case "mode":
+		if !c.NextArg() {
+			return c.ArgErr()
+		}
+
+		switch m := c.Val(); m {
+		case "normal":
+			f.processor = DefaultRequestProcessor{}
+		case "ygg":
+			f.processor = YggRequestProcessor{}
+		default:
+			return c.Errf("unknown mode '%s'", m)
+		}
+
 	default:
 		return c.Errf("unknown property '%s'", c.Val())
 	}
+
+	poolOptions = append(poolOptions, proxypool.WithProxyOptions(proxyOpts))
+	pool := proxypool.New(poolOptions...)
+
+	f.pool = pool
 
 	return nil
 }

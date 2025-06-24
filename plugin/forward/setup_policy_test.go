@@ -40,8 +40,8 @@ func TestSetupPolicy(t *testing.T) {
 			}
 		}
 
-		if !test.shouldErr && (len(fs) == 0 || fs[0].p.String() != test.expectedPolicy) {
-			t.Errorf("Test %d: expected: %s, got: %s", i, test.expectedPolicy, fs[0].p.String())
+		if !test.shouldErr && (len(fs) == 0 || fs[0].pool.Policy().String() != test.expectedPolicy) {
+			t.Errorf("Test %d: expected: %s, got: %s", i, test.expectedPolicy, fs[0].pool.Policy().String())
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package forward
 
 import (
+	"github.com/coredns/coredns/plugin/pkg/proxypool"
 	"strings"
 	"testing"
 
@@ -13,13 +14,18 @@ import (
 )
 
 func TestList(t *testing.T) {
-	f := Forward{
-		proxies: []*proxy.Proxy{
+
+	pool := proxypool.New(
+		proxypool.WithProxies(
 			proxy.NewProxy("TestList", "1.1.1.1:53", transport.DNS),
 			proxy.NewProxy("TestList", "2.2.2.2:53", transport.DNS),
 			proxy.NewProxy("TestList", "3.3.3.3:53", transport.DNS),
-		},
-		p: &roundRobin{},
+		),
+		proxypool.WithPolicy(&proxypool.RoundRobin{}),
+	)
+
+	f := Forward{
+		pool: pool,
 	}
 
 	expect := []*proxy.Proxy{

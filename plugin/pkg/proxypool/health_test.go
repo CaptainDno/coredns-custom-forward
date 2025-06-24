@@ -1,7 +1,9 @@
-package forward
+package proxypool
 
 import (
 	"context"
+	"github.com/coredns/coredns/request"
+
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,7 +17,7 @@ import (
 )
 
 func TestHealth(t *testing.T) {
-	defaultTimeout = 10 * time.Millisecond
+	defaultTimeout := 10 * time.Millisecond
 
 	i := uint32(0)
 	q := uint32(0)
@@ -36,14 +38,19 @@ func TestHealth(t *testing.T) {
 	p := proxy.NewProxy("TestHealth", s.Addr, transport.DNS)
 	p.GetHealthchecker().SetReadTimeout(10 * time.Millisecond)
 	p.GetHealthchecker().SetWriteTimeout(10 * time.Millisecond)
-	f := New()
-	f.SetProxy(p)
-	defer f.OnShutdown()
+
+	pool := New(WithTimeout(defaultTimeout))
+	pool.AddProxy(p)
+
+	defer p.Stop()
 
 	req := new(dns.Msg)
 	req.SetQuestion("example.org.", dns.TypeA)
 
-	f.ServeDNS(context.TODO(), &test.ResponseWriter{}, req)
+	pool.Connect(context.TODO(), request.Request{
+		Req: req,
+		W:   &test.ResponseWriter{},
+	})
 
 	time.Sleep(20 * time.Millisecond)
 	i1 := atomic.LoadUint32(&i)
@@ -53,7 +60,7 @@ func TestHealth(t *testing.T) {
 }
 
 func TestHealthTCP(t *testing.T) {
-	defaultTimeout = 10 * time.Millisecond
+	defaultTimeout := 10 * time.Millisecond
 
 	i := uint32(0)
 	q := uint32(0)
@@ -75,14 +82,18 @@ func TestHealthTCP(t *testing.T) {
 	p.GetHealthchecker().SetReadTimeout(10 * time.Millisecond)
 	p.GetHealthchecker().SetWriteTimeout(10 * time.Millisecond)
 	p.GetHealthchecker().SetTCPTransport()
-	f := New()
-	f.SetProxy(p)
-	defer f.OnShutdown()
+
+	pool := New(WithTimeout(defaultTimeout))
+	pool.AddProxy(p)
+	defer pool.Stop()
 
 	req := new(dns.Msg)
 	req.SetQuestion("example.org.", dns.TypeA)
 
-	f.ServeDNS(context.TODO(), &test.ResponseWriter{TCP: true}, req)
+	pool.Connect(context.TODO(), request.Request{
+		Req: req,
+		W:   &test.ResponseWriter{TCP: true},
+	})
 
 	time.Sleep(20 * time.Millisecond)
 	i1 := atomic.LoadUint32(&i)
@@ -92,7 +103,7 @@ func TestHealthTCP(t *testing.T) {
 }
 
 func TestHealthNoRecursion(t *testing.T) {
-	defaultTimeout = 10 * time.Millisecond
+	defaultTimeout := 10 * time.Millisecond
 
 	i := uint32(0)
 	q := uint32(0)
@@ -114,14 +125,19 @@ func TestHealthNoRecursion(t *testing.T) {
 	p.GetHealthchecker().SetReadTimeout(10 * time.Millisecond)
 	p.GetHealthchecker().SetWriteTimeout(10 * time.Millisecond)
 	p.GetHealthchecker().SetRecursionDesired(false)
-	f := New()
-	f.SetProxy(p)
-	defer f.OnShutdown()
+
+	pool := New(WithTimeout(defaultTimeout))
+	pool.AddProxy(p)
+
+	defer pool.Stop()
 
 	req := new(dns.Msg)
 	req.SetQuestion("example.org.", dns.TypeA)
 
-	f.ServeDNS(context.TODO(), &test.ResponseWriter{}, req)
+	pool.Connect(context.TODO(), request.Request{
+		Req: req,
+		W:   &test.ResponseWriter{},
+	})
 
 	time.Sleep(20 * time.Millisecond)
 	i1 := atomic.LoadUint32(&i)
@@ -131,7 +147,7 @@ func TestHealthNoRecursion(t *testing.T) {
 }
 
 func TestHealthTimeout(t *testing.T) {
-	defaultTimeout = 10 * time.Millisecond
+	defaultTimeout := 10 * time.Millisecond
 
 	i := uint32(0)
 	q := uint32(0)
@@ -157,14 +173,19 @@ func TestHealthTimeout(t *testing.T) {
 	p := proxy.NewProxy("TestHealthTimeout", s.Addr, transport.DNS)
 	p.GetHealthchecker().SetReadTimeout(10 * time.Millisecond)
 	p.GetHealthchecker().SetWriteTimeout(10 * time.Millisecond)
-	f := New()
-	f.SetProxy(p)
-	defer f.OnShutdown()
+
+	pool := New(WithTimeout(defaultTimeout))
+	pool.AddProxy(p)
+
+	defer pool.Stop()
 
 	req := new(dns.Msg)
 	req.SetQuestion("example.org.", dns.TypeA)
 
-	f.ServeDNS(context.TODO(), &test.ResponseWriter{}, req)
+	pool.Connect(context.TODO(), request.Request{
+		Req: req,
+		W:   &test.ResponseWriter{},
+	})
 
 	time.Sleep(20 * time.Millisecond)
 	i1 := atomic.LoadUint32(&i)
@@ -174,7 +195,7 @@ func TestHealthTimeout(t *testing.T) {
 }
 
 func TestHealthMaxFails(t *testing.T) {
-	defaultTimeout = 10 * time.Millisecond
+	defaultTimeout := 10 * time.Millisecond
 	//,hcInterval = 10 * time.Millisecond
 
 	s := dnstest.NewServer(func(w dns.ResponseWriter, r *dns.Msg) {
@@ -186,26 +207,33 @@ func TestHealthMaxFails(t *testing.T) {
 	p.SetReadTimeout(10 * time.Millisecond)
 	p.GetHealthchecker().SetReadTimeout(10 * time.Millisecond)
 	p.GetHealthchecker().SetWriteTimeout(10 * time.Millisecond)
-	f := New()
-	f.hcInterval = 10 * time.Millisecond
-	f.maxfails = 2
-	f.SetProxy(p)
-	defer f.OnShutdown()
+
+	pool := New(
+		WithHealthCheckInterval(defaultTimeout),
+		WithMaxFails(2),
+	)
+
+	pool.AddProxy(p)
+
+	defer pool.Stop()
 
 	req := new(dns.Msg)
 	req.SetQuestion("example.org.", dns.TypeA)
 
-	f.ServeDNS(context.TODO(), &test.ResponseWriter{}, req)
+	pool.Connect(context.TODO(), request.Request{
+		Req: req,
+		W:   &test.ResponseWriter{},
+	})
 
 	time.Sleep(100 * time.Millisecond)
 	fails := p.Fails()
-	if !p.Down(f.maxfails) {
-		t.Errorf("Expected Proxy fails to be greater than %d, got %d", f.maxfails, fails)
+	if !p.Down(2) {
+		t.Errorf("Expected Proxy fails to be greater than %d, got %d", 2, fails)
 	}
 }
 
 func TestHealthNoMaxFails(t *testing.T) {
-	defaultTimeout = 10 * time.Millisecond
+	defaultTimeout := 10 * time.Millisecond
 
 	i := uint32(0)
 	s := dnstest.NewServer(func(w dns.ResponseWriter, r *dns.Msg) {
@@ -222,15 +250,23 @@ func TestHealthNoMaxFails(t *testing.T) {
 	p := proxy.NewProxy("TestHealthNoMaxFails", s.Addr, transport.DNS)
 	p.GetHealthchecker().SetReadTimeout(10 * time.Millisecond)
 	p.GetHealthchecker().SetWriteTimeout(10 * time.Millisecond)
-	f := New()
-	f.maxfails = 0
-	f.SetProxy(p)
-	defer f.OnShutdown()
+
+	pool := New(
+		WithMaxFails(0),
+		WithTimeout(defaultTimeout),
+	)
+
+	pool.AddProxy(p)
+
+	defer pool.Stop()
 
 	req := new(dns.Msg)
 	req.SetQuestion("example.org.", dns.TypeA)
 
-	f.ServeDNS(context.TODO(), &test.ResponseWriter{}, req)
+	pool.Connect(context.TODO(), request.Request{
+		Req: req,
+		W:   &test.ResponseWriter{},
+	})
 
 	time.Sleep(20 * time.Millisecond)
 	i1 := atomic.LoadUint32(&i)
@@ -240,7 +276,7 @@ func TestHealthNoMaxFails(t *testing.T) {
 }
 
 func TestHealthDomain(t *testing.T) {
-	defaultTimeout = 10 * time.Millisecond
+	defaultTimeout := 10 * time.Millisecond
 
 	hcDomain := "example.org."
 	i := uint32(0)
@@ -262,14 +298,20 @@ func TestHealthDomain(t *testing.T) {
 	p.GetHealthchecker().SetReadTimeout(10 * time.Millisecond)
 	p.GetHealthchecker().SetWriteTimeout(10 * time.Millisecond)
 	p.GetHealthchecker().SetDomain(hcDomain)
-	f := New()
-	f.SetProxy(p)
-	defer f.OnShutdown()
+
+	pool := New(
+		WithTimeout(defaultTimeout))
+
+	pool.AddProxy(p)
+	defer pool.Stop()
 
 	req := new(dns.Msg)
 	req.SetQuestion(".", dns.TypeNS)
 
-	f.ServeDNS(context.TODO(), &test.ResponseWriter{}, req)
+	pool.Connect(context.TODO(), request.Request{
+		Req: req,
+		W:   &test.ResponseWriter{},
+	})
 
 	time.Sleep(20 * time.Millisecond)
 	i1 := atomic.LoadUint32(&i)
@@ -303,31 +345,33 @@ func TestAllUpstreamsDown(t *testing.T) {
 	p.GetHealthchecker().SetReadTimeout(10 * time.Millisecond)
 	p1.GetHealthchecker().SetReadTimeout(10 * time.Millisecond)
 
-	f := New()
-	f.SetProxy(p)
-	f.SetProxy(p1)
-	f.failfastUnhealthyUpstreams = true
-	f.maxfails = 1
+	pool := New(
+		WithMaxFails(1),
+		WithFailFast(true),
+		WithProxies(p, p1),
+	)
+
+	pool.Start()
+
 	// Make proxys fail by checking health twice
 	// i.e, fails > maxfails
-	for range f.maxfails + 1 {
+	for range 1 + 1 {
 		p.GetHealthchecker().Check(p)
 		p1.GetHealthchecker().Check(p1)
 	}
 
-	defer f.OnShutdown()
+	defer pool.Stop()
 
 	// Check if all proxies are down
-	if !p.Down(f.maxfails) || !p1.Down(f.maxfails) {
+	if !p.Down(1) || !p1.Down(1) {
 		t.Fatalf("Expected all proxies to be down")
 	}
 	req := new(dns.Msg)
 	req.SetQuestion("example.org.", dns.TypeA)
-	resp, err := f.ServeDNS(context.TODO(), &test.ResponseWriter{}, req)
-
-	if resp != dns.RcodeServerFailure {
-		t.Errorf("Expected Response code: %d, Got: %d", dns.RcodeServerFailure, resp)
-	}
+	_, err, _ := pool.Connect(context.TODO(), request.Request{
+		Req: req,
+		W:   &test.ResponseWriter{},
+	})
 
 	if err != ErrNoHealthy {
 		t.Errorf("Expected error message: no healthy proxies, Got: %s", err.Error())
@@ -339,11 +383,15 @@ func TestAllUpstreamsDown(t *testing.T) {
 	}
 
 	// set failfast to false to check if queries get answered
-	f.failfastUnhealthyUpstreams = false
+
+	WithFailFast(false)(pool)
 
 	req = new(dns.Msg)
 	req.SetQuestion("example.org.", dns.TypeA)
-	_, err = f.ServeDNS(context.TODO(), &test.ResponseWriter{}, req)
+	_, err, _ = pool.Connect(context.TODO(), request.Request{
+		Req: req,
+		W:   &test.ResponseWriter{},
+	})
 	if err == ErrNoHealthy {
 		t.Error("Unexpected error message: no healthy proxies")
 	}

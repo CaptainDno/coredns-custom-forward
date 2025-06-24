@@ -1,4 +1,4 @@
-package forward
+package proxypool
 
 import (
 	"sync/atomic"
@@ -15,11 +15,11 @@ type Policy interface {
 }
 
 // random is a policy that implements random upstream selection.
-type random struct{}
+type Random struct{}
 
-func (r *random) String() string { return "random" }
+func (r *Random) String() string { return "random" }
 
-func (r *random) List(p []*proxy.Proxy) []*proxy.Proxy {
+func (r *Random) List(p []*proxy.Proxy) []*proxy.Proxy {
 	switch len(p) {
 	case 1:
 		return p
@@ -40,13 +40,13 @@ func (r *random) List(p []*proxy.Proxy) []*proxy.Proxy {
 }
 
 // roundRobin is a policy that selects hosts based on round robin ordering.
-type roundRobin struct {
+type RoundRobin struct {
 	robin uint32
 }
 
-func (r *roundRobin) String() string { return "round_robin" }
+func (r *RoundRobin) String() string { return "round_robin" }
 
-func (r *roundRobin) List(p []*proxy.Proxy) []*proxy.Proxy {
+func (r *RoundRobin) List(p []*proxy.Proxy) []*proxy.Proxy {
 	poolLen := uint32(len(p))
 	i := atomic.AddUint32(&r.robin, 1) % poolLen
 
@@ -58,11 +58,11 @@ func (r *roundRobin) List(p []*proxy.Proxy) []*proxy.Proxy {
 }
 
 // sequential is a policy that selects hosts based on sequential ordering.
-type sequential struct{}
+type Sequential struct{}
 
-func (r *sequential) String() string { return "sequential" }
+func (r *Sequential) String() string { return "sequential" }
 
-func (r *sequential) List(p []*proxy.Proxy) []*proxy.Proxy {
+func (r *Sequential) List(p []*proxy.Proxy) []*proxy.Proxy {
 	return p
 }
 

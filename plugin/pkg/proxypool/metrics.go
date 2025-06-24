@@ -1,4 +1,4 @@
-package forward
+package proxypool
 
 import (
 	"github.com/coredns/coredns/plugin"

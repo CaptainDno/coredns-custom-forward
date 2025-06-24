@@ -48,6 +48,7 @@ forward FROM TO... {
     tls CERT KEY CA
     tls_servername NAME
     policy random|round_robin|sequential
+    mode normal|ygg
     health_check DURATION [no_rec] [domain FQDN]
     max_concurrent MAX
     next RCODE_1 [RCODE_2] [RCODE_3...]
@@ -86,6 +87,9 @@ forward FROM TO... {
   * `random` is a policy that implements random upstream selection.
   * `round_robin` is a policy that selects hosts based on round robin ordering.
   * `sequential` is a policy that selects hosts based on sequential ordering.
+* `mode` specifies mode of operation
+  * `normal` identical to official forward plugin
+  * `ygg` supports only AAAA queries, tries to get Yggdrasil IPv6 address (or addresses) from special TXT record. If record is not present, returns empty response  
 * `health_check` configure the behaviour of health checking of the upstream servers
   * `<duration>` - use a different duration for health checking, the default duration is 0.5s.
   * `no_rec` - optional argument that sets the RecursionDesired-flag of the dns-query used in health checking to `false`.

@@ -75,11 +75,11 @@ func TestSetup(t *testing.T) {
 					t.Errorf("Test %d: expected: %q, actual: %q", i, test.expectedIgnored, f.ignored)
 				}
 			}
-			if f.maxfails != test.expectedFails {
-				t.Errorf("Test %d: expected: %d, got: %d", i, test.expectedFails, f.maxfails)
+			if f.pool.MaxFails() != test.expectedFails {
+				t.Errorf("Test %d: expected: %d, got: %d", i, test.expectedFails, f.pool.MaxFails())
 			}
-			if f.opts != test.expectedOpts {
-				t.Errorf("Test %d: expected: %v, got: %v", i, test.expectedOpts, f.opts)
+			if f.pool.Opts() != test.expectedOpts {
+				t.Errorf("Test %d: expected: %v, got: %v", i, test.expectedOpts, f.pool.Opts())
 			}
 		}
 	}
@@ -128,8 +128,8 @@ func TestSetupTLS(t *testing.T) {
 			t.Errorf("Test %d: expected: %q, actual: %q", i, test.expectedServerName, f.tlsConfig.ServerName)
 		}
 
-		if !test.shouldErr && test.expectedServerName != "" && test.expectedServerName != f.proxies[0].GetHealthchecker().GetTLSConfig().ServerName {
-			t.Errorf("Test %d: expected: %q, actual: %q", i, test.expectedServerName, f.proxies[0].GetHealthchecker().GetTLSConfig().ServerName)
+		if !test.shouldErr && test.expectedServerName != "" && test.expectedServerName != f.pool.Proxies()[0].GetHealthchecker().GetTLSConfig().ServerName {
+			t.Errorf("Test %d: expected: %q, actual: %q", i, test.expectedServerName, f.pool.Proxies()[0].GetHealthchecker().GetTLSConfig().ServerName)
 		}
 	}
 }
@@ -189,13 +189,13 @@ nameserver 10.10.255.253`), 0666); err != nil {
 
 		f := fs[0]
 		for j, n := range test.expectedNames {
-			addr := f.proxies[j].Addr()
+			addr := f.pool.Proxies()[j].Addr()
 			if n != addr {
 				t.Errorf("Test %d, expected %q, got %q", j, n, addr)
 			}
 		}
 
-		for _, p := range f.proxies {
+		for _, p := range f.pool.Proxies() {
 			p.Healthcheck() // this should almost always err, we don't care it shouldn't crash
 		}
 	}
@@ -237,8 +237,8 @@ func TestSetupMaxConcurrent(t *testing.T) {
 			continue
 		}
 		f := fs[0]
-		if f.maxConcurrent != test.expectedVal {
-			t.Errorf("Test %d: expected: %d, got: %d", i, test.expectedVal, f.maxConcurrent)
+		if f.pool.MaxConcurrent() != test.expectedVal {
+			t.Errorf("Test %d: expected: %d, got: %d", i, test.expectedVal, f.pool.MaxConcurrent())
 		}
 	}
 }
@@ -289,9 +289,9 @@ func TestSetupHealthCheck(t *testing.T) {
 		}
 
 		f := fs[0]
-		if f.opts.HCRecursionDesired != test.expectedRecVal || f.proxies[0].GetHealthchecker().GetRecursionDesired() != test.expectedRecVal ||
-			f.opts.HCDomain != test.expectedDomain || f.proxies[0].GetHealthchecker().GetDomain() != test.expectedDomain || !dns.IsFqdn(f.proxies[0].GetHealthchecker().GetDomain()) {
-			t.Errorf("Test %d: expectedRec: %v, got: %v. expectedDomain: %s, got: %s. ", i, test.expectedRecVal, f.opts.HCRecursionDesired, test.expectedDomain, f.opts.HCDomain)
+		if f.pool.Opts().HCRecursionDesired != test.expectedRecVal || f.pool.Proxies()[0].GetHealthchecker().GetRecursionDesired() != test.expectedRecVal ||
+			f.pool.Opts().HCDomain != test.expectedDomain || f.pool.Proxies()[0].GetHealthchecker().GetDomain() != test.expectedDomain || !dns.IsFqdn(f.pool.Proxies()[0].GetHealthchecker().GetDomain()) {
+			t.Errorf("Test %d: expectedRec: %v, got: %v. expectedDomain: %s, got: %s. ", i, test.expectedRecVal, f.pool.Opts().HCRecursionDesired, test.expectedDomain, f.pool.Opts().HCDomain)
 		}
 	}
 }
@@ -418,8 +418,8 @@ func TestFailfastAllUnhealthyUpstreams(t *testing.T) {
 		}
 
 		f := fs[0]
-		if f.failfastUnhealthyUpstreams != test.expectedRecVal {
-			t.Errorf("Test %d: Expected Rec:%v, got:%v", i, test.expectedRecVal, f.failfastUnhealthyUpstreams)
+		if f.pool.FailFast() != test.expectedRecVal {
+			t.Errorf("Test %d: Expected Rec:%v, got:%v", i, test.expectedRecVal, f.pool.FailFast())
 		}
 	}
 }
