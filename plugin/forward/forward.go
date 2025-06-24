@@ -94,6 +94,11 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 
 	ret, err, upstreamAddr := f.processor.ProcessRequest(ctx, state, f.pool.Connect)
 
+	// Processors can initiate fallthrough
+	if err == FallthroughError {
+		return plugin.NextOrFailure(f.Name(), f.Next, ctx, w, r)
+	}
+
 	// Upstream addr may be an empty string
 	metadata.SetValueFunc(ctx, "forward/upstream", func() string {
 		return upstreamAddr

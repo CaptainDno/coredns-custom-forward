@@ -29,36 +29,49 @@ func (d DefaultRequestProcessor) ProcessRequest(ctx context.Context, state reque
 	return connectFn(ctx, state)
 }
 
-// YggRequestProcessor only supports AAAA requests
+// YggRequestProcessor only supports AAAA and A requests
 // It returns AAAA records that point to Yggdrasil ip addresses
 // This addresses must be present in TXT record
-type YggRequestProcessor struct{}
+type YggRequestProcessor struct {
+}
 
 func (y YggRequestProcessor) Match(state request.Request) bool {
-	return state.QType() == dns.TypeAAAA
+	return state.QType() == dns.TypeAAAA || state.QType() == dns.TypeA
 }
 
 func (y YggRequestProcessor) ProcessRequest(ctx context.Context, state request.Request, connect ConnectFn) (*dns.Msg, error, string) {
+
+	oQtype := state.QType()
+
 	state.Req.Question[0].Qtype = dns.TypeTXT
 
 	ret, err, upstream := connect(ctx, state)
 
 	// Switch back to original
-	state.Req.Question[0].Qtype = dns.TypeAAAA
+	state.Req.Question[0].Qtype = oQtype
 
 	if err != nil || ret.Rcode != dns.RcodeSuccess {
 		return ret, err, upstream
 	}
 
-	answers := make([]dns.RR, 0, 1)
-
+	// Scan TXT records
 	for _, rr := range ret.Answer {
 		if rr.Header().Rrtype == dns.TypeTXT {
 			record := rr.(*dns.TXT)
 
 			if s, found := strings.CutPrefix(record.Txt[0], "yggaddr="); found {
-				// We have found needed record
 
+				// If yggaddr record exists, do not return IPv4 addresses, because they are outside of Yggdrasil
+				if oQtype == dns.TypeA {
+					e := new(dns.Msg)
+					e.SetRcode(state.Req, dns.RcodeSuccess)
+					return e, nil, upstream
+				}
+
+				// We have found the needed record
+				answers := make([]dns.RR, 0, 1)
+
+				// Header will be same for all returned records (if any)
 				hdr := dns.RR_Header{
 					Name:   record.Hdr.Name,
 					Rrtype: dns.TypeAAAA,
@@ -67,12 +80,16 @@ func (y YggRequestProcessor) ProcessRequest(ctx context.Context, state request.R
 				}
 
 				answers, err = appendYggAddresses(answers, s, hdr)
+
+				// If yggaddr record is malformed, we do not fall through silently, we return actual error
+				// Plugin may be additionally configured to fall though on ServerFailure
+				if err == InvalidIPAddressError || len(answers) == 0 {
+					formerr := new(dns.Msg)
+					formerr.SetRcode(state.Req, dns.RcodeServerFailure)
+					return formerr, nil, upstream
+				}
+
 				if err != nil {
-					if err == InvalidIPAddressError {
-						formerr := new(dns.Msg)
-						formerr.SetRcode(state.Req, dns.RcodeServerFailure)
-						return formerr, nil, upstream
-					}
 					return nil, err, upstream
 				}
 
@@ -90,16 +107,17 @@ func (y YggRequestProcessor) ProcessRequest(ctx context.Context, state request.R
 					}
 				}
 
-				// Exit loop over txt records, only one yggaddr record is allowed
-				break
+				// Return results
+				reply := new(dns.Msg)
+				reply.SetReply(state.Req)
+				reply.Answer = answers
+				return reply, nil, upstream
 			}
 		}
 	}
 
-	// Set new answer RRs
-	ret.Answer = answers
-
-	return ret, nil, upstream
+	// This happens if there is no Yggdrasil record for the domain
+	return nil, FallthroughError, upstream
 }
 
 func appendYggAddresses(answers []dns.RR, str string, hdr dns.RR_Header) ([]dns.RR, error) {
@@ -127,6 +145,7 @@ func appendYggAddresses(answers []dns.RR, str string, hdr dns.RR_Header) ([]dns.
 }
 
 var InvalidIPAddressError = errors.New("invalid IP Address")
+var FallthroughError = errors.New("fallthrough")
 
 // See Yggdrasil documentation
 func getYggSubnet() *net.IPNet {
