@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/coredns/coredns/plugin/debug"
+	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/plugin/pkg/proxy"
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
@@ -186,6 +187,9 @@ func (p *ProxyPool) Connect(ctx context.Context, state request.Request) (*dns.Ms
 				opts.ForceTCP = true
 				continue
 			}
+
+			clog.Errorf("failed to query upstream: %v", err)
+
 			break
 		}
 
